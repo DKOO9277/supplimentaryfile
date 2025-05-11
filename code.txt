@@ -1,0 +1,174 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import matplotlib.pyplot as plt
+from tensorflow.keras.callbacks import LambdaCallback
+
+# Load the dataset
+file_path = 'CF.csv'  # Update with your file name
+data = pd.read_csv(file_path)
+
+# Features (input) and target (output)
+X = data[['Strain', 'Pore Density', 'Acetone', 'Methanol', 'Ethanol']]
+y = data['Compressive strength']
+
+# Normalize the input features
+scaler = MinMaxScaler()
+X_scaled = X.copy()  # Avoid SettingWithCopyWarning
+X_scaled[['Strain', 'Pore Density']] = scaler.fit_transform(X[['Strain', 'Pore Density']])
+y_scaled = scaler.fit_transform(y.values.reshape(-1, 1))
+
+# Split the dataset into 70% train and 30% (test + validation)
+X_train, X_temp, y_train, y_temp = train_test_split(X_scaled, y, test_size=0.3, random_state=42)
+
+# Further split the 30% into 15% test and 15% validation
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+# Save Train, Validation, and Test datasets to CSV
+X_train.to_csv('X_train.csv', index=False)
+y_train.to_csv('y_train.csv', index=False)
+
+X_val.to_csv('X_val.csv', index=False)
+y_val.to_csv('y_val.csv', index=False)
+
+X_test.to_csv('X_test.csv', index=False)
+y_test.to_csv('y_test.csv', index=False)
+print("Train, Validation, and Test datasets have been saved to CSV files.")
+
+# ANN Model
+model = Sequential()
+model.add(Dense(100, input_dim=X_train.shape[1], activation='relu'))  # First hidden layer
+model.add(Dense(100, activation='relu'))
+model.add(Dense(100, activation='relu'))
+model.add(Dense(100, activation='relu'))
+model.add(Dense(1, activation='linear'))  # Output layer
+
+# Compile the model (adding the loss function)
+model.compile(optimizer='adam', loss='mse', metrics=['mae', 'mse'])  # Using MSE as loss function
+
+# Lists to store metrics for each epoch
+r2_train_list = []
+r2_val_list = []
+r2_test_list = []
+mse_train_list = []
+mse_val_list = []
+mse_test_list = []
+mae_train_list = []
+mae_val_list = []
+mae_test_list = []
+
+# Custom callback to track R², MSE, and MAE after each epoch
+def track_metrics(epoch, model, X_train, y_train, X_val, y_val, X_test, y_test):
+    # Calculate predictions
+    y_train_pred = model.predict(X_train, batch_size=50)
+    y_val_pred = model.predict(X_val, batch_size=50)
+    y_test_pred = model.predict(X_test, batch_size=50)
+    
+    # Calculate R²
+    r2_train = r2_score(y_train, y_train_pred)
+    r2_val = r2_score(y_val, y_val_pred)
+    r2_test = r2_score(y_test, y_test_pred)
+    
+    # Calculate MSE
+    mse_train = mean_squared_error(y_train, y_train_pred)
+    mse_val = mean_squared_error(y_val, y_val_pred)
+    mse_test = mean_squared_error(y_test, y_test_pred)
+    
+    # Calculate MAE
+    mae_train = mean_absolute_error(y_train, y_train_pred)
+    mae_val = mean_absolute_error(y_val, y_val_pred)
+    mae_test = mean_absolute_error(y_test, y_test_pred)
+    
+    # Store the metrics
+    r2_train_list.append(r2_train)
+    r2_val_list.append(r2_val)
+    r2_test_list.append(r2_test)
+    mse_train_list.append(mse_train)
+    mse_val_list.append(mse_val)
+    mse_test_list.append(mse_test)
+    mae_train_list.append(mae_train)
+    mae_val_list.append(mae_val)
+    mae_test_list.append(mae_test)
+
+# Lambda callback to track metrics after each epoch
+metrics_callback = LambdaCallback(on_epoch_end=lambda epoch, logs: track_metrics(epoch, model, X_train, y_train, X_val, y_val, X_test, y_test))
+
+# Train the model
+history = model.fit(X_train, y_train, epochs=50, batch_size=50, validation_data=(X_val, y_val), verbose=1, callbacks=[metrics_callback])
+
+# Plotting the metrics (R², MSE, MAE) for Training, Validation, and Test datasets
+plt.figure(figsize=(16, 8))
+plt.rc('font',family='Times New Roman',size=16)
+
+# Plot R² vs Epoch
+plt.subplot(1, 3, 1)
+plt.plot(r2_train_list, label='Training R²', color='green', alpha=1)
+plt.plot(r2_val_list, label='Validation R²', color='red', alpha=1)
+plt.plot(r2_test_list, label='Test R²', color='blue', alpha=1)
+plt.title('Epoch vs R²')
+plt.xlabel('Epochs')
+plt.ylabel('R² (Coefficient of Determination)')
+
+plt.xlim(0, len(r2_train_list))
+
+# Plot MSE vs Epoch
+plt.subplot(1, 3, 2)
+plt.plot(mse_train_list, label='Training MSE', color='green', alpha=1)
+plt.plot(mse_val_list, label='Validation MSE', color='red', alpha=1)
+plt.plot(mse_test_list, label='Test MSE', color='blue', alpha=1)
+plt.title('Epoch vs MSE')
+plt.xlabel('Epochs')
+plt.ylabel('Mean Squared Error (MSE)')
+plt.xlim(0, len(mse_train_list))
+
+# Plot MAE vs Epoch
+plt.subplot(1, 3, 3)
+plt.plot(mae_train_list, label='Training MAE', color='green', alpha=1)
+plt.plot(mae_val_list, label='Validation MAE', color='red', alpha=1)
+plt.plot(mae_test_list, label='Test MAE', color='blue', alpha=1)
+plt.title('Epoch vs MAE')
+plt.xlabel('Epochs')
+plt.ylabel('Mean Absolute Error (MAE)')
+plt.xlim(0, len(mae_train_list)) 
+# Save the figure
+plt.tight_layout()
+plt.savefig("Epoch_vs_Metrics.png", dpi=1200)
+plt.show()
+
+# Save the predictions to a CSV file
+y_pred = model.predict(X_test)
+output_df = pd.DataFrame({
+    'Actual': y_test.values,
+    'Predicted': y_pred.flatten()
+})
+output_df.to_csv('CF_predictions.csv', index=False)
+print("Predictions saved to 'CF_predictions.csv'")
+
+# Calculate final metrics
+r2_train_final = r2_score(y_train, model.predict(X_train))
+r2_val_final = r2_score(y_val, model.predict(X_val))
+r2_test_final = r2_score(y_test, y_pred)
+
+mse_train_final = mean_squared_error(y_train, model.predict(X_train))
+mse_val_final = mean_squared_error(y_val, model.predict(X_val))
+mse_test_final = mean_squared_error(y_test, y_pred)
+
+mae_train_final = mean_absolute_error(y_train, model.predict(X_train))
+mae_val_final = mean_absolute_error(y_val, model.predict(X_val))
+mae_test_final = mean_absolute_error(y_test, y_pred)
+
+# Print final metrics
+print("Final R² for Train Data:", r2_train_final)
+print("Final R² for Validation Data:", r2_val_final)
+print("Final R² for Test Data:", r2_test_final)
+
+print("Final MSE for Train Data:", mse_train_final)
+print("Final MSE for Validation Data:", mse_val_final)
+print("Final MSE for Test Data:", mse_test_final)
+
+print("Final MAE for Train Data:", mae_train_final)
+print("Final MAE for Validation Data:", mae_val_final)
+print("Final MAE for Test Data:", mae_test_final)
